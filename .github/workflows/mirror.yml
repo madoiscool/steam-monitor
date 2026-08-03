@@ -1,0 +1,148 @@
+name: sync
+
+# The schedule is only a *restarter*. Each run polls continuously for ~5h45m,
+# so schedule lag (GitHub routinely delays or drops cron events) costs nothing —
+# it just needs to fire eventually after a run ends. Real sync latency is POLL.
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      once:
+        description: 'Sync once and exit instead of polling'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+
+    steps:
+      # No `concurrency:` block: cancel-in-progress:false would *queue* every
+      # cron event behind the long-running job and pile them up. Guard instead.
+      - name: Skip if another run is already polling
+        id: guard
+        if: inputs.once != true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          active=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs?per_page=100" \
+            --jq "[.workflow_runs[]
+                   | select(.name == \"sync\")
+                   | select(.status == \"in_progress\" or .status == \"queued\" or .status == \"waiting\")
+                   | select((.id | tostring) != \"$GITHUB_RUN_ID\")] | length")
+          echo "other active runs: $active"
+          if [ "$active" -gt 0 ]; then
+            echo "another run is already polling, exiting"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Mirror
+        if: steps.guard.outputs.skip != 'true'
+        env:
+          UPSTREAM_URL: ${{ secrets.UPSTREAM_URL }}
+          UPSTREAM_OWNER: ${{ secrets.UPSTREAM_OWNER }}
+          GITHUB_TOKEN: ${{ github.token }}
+          ONCE: ${{ inputs.once }}
+        run: |
+          set -euo pipefail
+          # Belt and braces: secret values are auto-masked, but mask explicitly
+          # so the bare owner string is scrubbed too, wherever it surfaces.
+          echo "::add-mask::$UPSTREAM_URL"
+          echo "::add-mask::$UPSTREAM_OWNER"
+          # NEVER `set -x` in this job: it would echo the upstream URL.
+
+          if [ -z "$UPSTREAM_URL" ]; then
+            echo "UPSTREAM_URL secret is not set" >&2
+            exit 1
+          fi
+
+          POLL=15           # seconds between upstream checks
+          HEARTBEAT=1800    # seconds between "still alive" log lines
+          MAX_FAILS=10      # consecutive failures before giving up loudly
+          DEADLINE=$(( $(date +%s) + 20700 ))   # 5h45m, under the 6h job ceiling
+
+          git clone --quiet --bare "$UPSTREAM_URL" work.git
+          cd work.git
+          git remote add mirror \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+          # Push cannot use --prune (it would delete `main`, which upstream has
+          # no counterpart for), so delete vanished branches explicitly.
+          prune_gone() {
+            local mir_names name short
+            mir_names=$(git ls-remote --heads mirror | awk '{print $2}') || return 0
+            for name in $mir_names; do
+              [ "$name" = "refs/heads/main" ] && continue
+              if ! printf '%s\n' "$up" | awk '{print $2}' | grep -qx "$name"; then
+                short=${name#refs/heads/}
+                echo "deleting stale branch $short"
+                git push --quiet mirror ":$name" || true
+              fi
+            done
+          }
+
+          last=""           # empty so the first pass always syncs (self-healing)
+          last_beat=$(date +%s)
+          fails=0
+          synced=0
+
+          while :; do
+            now=$(date +%s)
+
+            if up=$(git ls-remote --heads "$UPSTREAM_URL" | sort); then
+              fails=0
+            else
+              up=""
+              fails=$(( fails + 1 ))
+              echo "$(date -u +%H:%M:%S) upstream check failed ($fails consecutive)"
+              if [ "$fails" -ge "$MAX_FAILS" ]; then
+                echo "giving up after $fails consecutive failures" >&2
+                exit 1
+              fi
+            fi
+
+            if [ -n "$up" ] && [ "$up" != "$last" ]; then
+              if git fetch --quiet --prune origin '+refs/heads/*:refs/heads/*' \
+                 && git push --quiet mirror '+refs/heads/*:refs/heads/*'; then
+                prune_gone
+                last="$up"
+                synced=$(( synced + 1 ))
+                last_beat=$now
+                echo "$(date -u +%H:%M:%S) synced:"
+                printf '%s\n' "$up" | sed 's#\trefs/heads/#  #'
+              else
+                fails=$(( fails + 1 ))
+                echo "$(date -u +%H:%M:%S) sync failed ($fails consecutive)"
+                if [ "$fails" -ge "$MAX_FAILS" ]; then
+                  echo "giving up after $fails consecutive failures" >&2
+                  exit 1
+                fi
+              fi
+            fi
+
+            # Quiet unless something happened — a silent 15s loop over 5h45m
+            # would otherwise produce a useless, enormous log.
+            if [ $(( now - last_beat )) -ge "$HEARTBEAT" ]; then
+              echo "$(date -u +%H:%M:%S) alive, $synced sync(s) this run"
+              last_beat=$now
+            fi
+
+            if [ "${ONCE:-false}" = "true" ]; then
+              echo "one-shot mode, done"
+              break
+            fi
+
+            if [ "$now" -ge "$DEADLINE" ]; then
+              echo "deadline reached after $synced sync(s), exiting for restart"
+              break
+            fi
+
+            sleep "$POLL"
+          done
