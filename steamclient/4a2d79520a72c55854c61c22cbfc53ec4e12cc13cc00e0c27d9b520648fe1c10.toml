@@ -1,0 +1,49 @@
+[IClientUser]
+interface_id = 1
+vtable_rva = "0x138C870"
+
+[IClientUser.GetSteamID]
+method_index = 10
+funcHash = "0xD6FC3200"
+wrapper_rva = "0x7DA330"
+fencepost = "0xD7058CA5"
+argc = 0
+
+[IClientUser.GetAppOwnershipTicketExtendedData]
+method_index = 106
+funcHash = "0xC7E71244"
+wrapper_rva = "0x7A2AD0"
+fencepost = "0xC844D740"
+argc = 2
+
+[IClientUser.RequestEncryptedAppTicket]
+method_index = 121
+funcHash = "0x25D6BB1C"
+wrapper_rva = "0x8A6530"
+fencepost = "0x2646F563"
+argc = 2
+
+[IClientUser.GetEncryptedAppTicket]
+method_index = 122
+funcHash = "0xE0468CB5"
+wrapper_rva = "0x7B5660"
+fencepost = "0xE0B84102"
+argc = 1
+
+[IClientUtils]
+interface_id = 4
+vtable_rva = "0x1392328"
+
+[IClientUtils.GetAppID]
+method_index = 19
+funcHash = "0x09607EC0"
+wrapper_rva = "0x7A1830"
+fencepost = "0x0AFF7152"
+argc = 0
+
+[IClientUtils.GetAPICallResult]
+method_index = 24
+funcHash = "0x2D3D397B"
+wrapper_rva = "0x79D570"
+fencepost = "0x2EE05B1E"
+argc = 3
