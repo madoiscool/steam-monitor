@@ -97,6 +97,7 @@ message CMsgClientSettings {
     optional bool enable_gamescope_composer = 5010;
     optional bool enable_gamescope_composer_vr = 5011;
     optional bool show_switch_to_desktop_at_login = 5012;
+    optional bool enable_steamrtarm64_client = 5013;
     optional bool disable_all_toasts = 6000;
     optional bool disable_toasts_in_game = 6001;
     optional bool play_sound_on_toast = 6002;
@@ -291,6 +292,7 @@ message CMsgClientSettings {
     optional bool skip_steamframe_pairing_dialog = 27010;
     optional bool skip_steamframe_troubleshooting_dialog = 27011;
     optional bool skip_steamframe_airplane_dialog = 27012;
+    optional string remote_play_wifi_ap_plan_channel_override = 27013;
     optional bool oobe_completed = 28001;
     optional bool oobe_test_mode_enabled = 28002;
     optional bool force_oobe = 28003;

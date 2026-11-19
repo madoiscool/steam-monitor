@@ -88,6 +88,7 @@ message CMsgClientGMSServerQuery {
     optional string filter_text = 4;
     optional uint32 max_servers = 5;
     optional string sdr_ping_location = 6;
+    optional bool accepts_zero_ip = 7;
 }
 
 message CMsgGMSClientServerQueryResponse {
@@ -126,6 +127,7 @@ message CMsgGMSClientServerQueryResponse {
         optional uint32 friends_count = 34;
         optional uint32 friends_count_connected = 35;
         optional uint32 ping_estimate = 36;
+        optional fixed64 steam_clan_id = 37;
     }
     
     optional string error = 2;
